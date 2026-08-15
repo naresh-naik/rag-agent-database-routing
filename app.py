@@ -47,19 +47,48 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ---------- Design tokens ---------- */
+:root {
+    --bg: #070b12;
+    --surface: #0d1424;
+    --surface-2: #111a2e;
+    --line: rgba(148, 163, 184, 0.14);
+    --text: #e6edf7;
+    --muted: #8b98ad;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --grad: linear-gradient(135deg, #38bdf8, #818cf8);
+}
 
 html, body, [class*="css"], .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stBottom"] {
-    background-color: #080c14 !important;
-    color: #e2e8f0 !important;
+    background-color: var(--bg) !important;
+    color: var(--text) !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
+
+/* Ambient aurora glow behind the workspace */
+.stApp::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(55% 32% at 16% -4%, rgba(56, 189, 248, 0.13), transparent 60%),
+        radial-gradient(45% 28% at 88% 0%, rgba(129, 140, 248, 0.11), transparent 55%);
+}
+[data-testid="stAppViewContainer"] > div { position: relative; z-index: 1; }
 
 /* Hide MainMenu and Footer only, preserve Header for Sidebar Toggle */
 #MainMenu, footer { visibility: hidden !important; }
 
+/* Slimmer, softer dividers */
+hr { border-color: var(--line) !important; opacity: 0.7; margin: 1rem 0 !important; }
+
 header[data-testid="stHeader"] {
-    background-color: #080c14 !important;
+    background-color: transparent !important;
     z-index: 100 !important;
 }
 
@@ -98,9 +127,12 @@ button[aria-label="Open sidebar"] svg,
 
 /* Sidebar Container Styling */
 [data-testid="stSidebar"] {
-    background-color: #0f172a !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background-color: #0b1120 !important;
+    border-right: 1px solid var(--line) !important;
     padding-top: 1rem;
+}
+[data-testid="stSidebar"] > div {
+    background: transparent !important;
 }
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] label,
@@ -112,13 +144,24 @@ button[aria-label="Open sidebar"] svg,
 
 /* Section Title Headers */
 .sidebar-section-header {
-    font-size: 11px !important;
+    display: flex;
+    align-items: center;
+    font-size: 10.5px !important;
     font-weight: 700 !important;
-    color: #0ea5e9 !important;
-    letter-spacing: 1px !important;
+    color: var(--accent) !important;
+    letter-spacing: 1.4px !important;
     text-transform: uppercase !important;
-    margin-top: 14px !important;
-    margin-bottom: 8px !important;
+    margin-top: 16px !important;
+    margin-bottom: 10px !important;
+}
+.sidebar-section-header::before {
+    content: "";
+    width: 14px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--grad);
+    margin-right: 8px;
+    flex-shrink: 0;
 }
 
 /* Card Container */
@@ -134,18 +177,27 @@ button[aria-label="Open sidebar"] svg,
 
 /* Chat Messages */
 [data-testid="stChatMessage"] {
-    background: rgba(15, 23, 42, 0.75) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 12px !important;
+    background: linear-gradient(180deg, rgba(17, 26, 46, 0.72), rgba(13, 20, 36, 0.72)) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
     margin-bottom: 14px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: 0 6px 18px rgba(2, 6, 16, 0.35) !important;
+    backdrop-filter: blur(8px) !important;
 }
-[data-testid="stChatMessage"] p { color: #f1f5f9 !important; font-size: 14.5px; line-height: 1.6; }
+[data-testid="stChatMessage"][data-testid*="user"],
+[data-testid="stUserMessage"] {
+    border-left: 3px solid var(--accent) !important;
+}
+[data-testid="stAssistantMessage"] {
+    border-left: 3px solid var(--accent-2) !important;
+}
+[data-testid="stChatMessage"] p { color: #f1f5f9 !important; font-size: 14.5px; line-height: 1.65; }
 [data-testid="stChatMessage"] code {
     background-color: #090d16 !important;
-    color: #38bdf8 !important;
-    border-radius: 4px !important;
+    color: #7dd3fc !important;
+    border-radius: 5px !important;
     padding: 2px 6px !important;
+    border: 1px solid rgba(56, 189, 248, 0.18) !important;
 }
 
 /* Streamlit Expander Styling Overrides (Fix White Clashing Box) */
@@ -379,19 +431,44 @@ div[data-testid="stFileUploaderDropzone"] *,
 
 /* Custom Buttons */
 .stButton button {
-    background: rgba(30, 41, 59, 0.8) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(30, 41, 59, 0.65) !important;
+    border: 1px solid var(--line) !important;
     color: #cbd5e1 !important;
-    border-radius: 8px !important;
-    font-size: 13px !important;
+    border-radius: 10px !important;
+    font-size: 12.5px !important;
     font-weight: 500 !important;
-    transition: all 0.2s ease-in-out !important;
+    transition: all 0.18s ease-in-out !important;
 }
 .stButton button:hover {
-    background: rgba(51, 65, 85, 0.9) !important;
-    border-color: #0ea5e9 !important;
+    background: rgba(51, 65, 85, 0.85) !important;
+    border-color: var(--accent) !important;
     color: #ffffff !important;
     transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.18) !important;
+}
+
+/* Quick demo query chips: compact, left-aligned, no wasted height.
+   The .demo-query-btn div renders as the sibling directly before the
+   button's block (Streamlit auto-closes the div), hence the + selector. */
+.demo-query-btn + div button {
+    width: 100%;
+    text-align: left !important;
+    padding: 8px 12px !important;
+    border-radius: 9px !important;
+    white-space: normal !important;
+    line-height: 1.35 !important;
+}
+
+/* Danger-style reset button (same sibling trick) */
+.reset-btn + div button {
+    border: 1px solid rgba(248, 113, 113, 0.35) !important;
+    color: #fca5a5 !important;
+}
+.reset-btn + div button:hover {
+    background: rgba(239, 68, 68, 0.12) !important;
+    border-color: #ef4444 !important;
+    color: #fecaca !important;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.15) !important;
 }
 
 /* Badges */
@@ -399,12 +476,13 @@ div[data-testid="stFileUploaderDropzone"] *,
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 12px;
-    border-radius: 20px;
+    padding: 5px 13px;
+    border-radius: 999px;
     font-size: 11.5px;
     font-weight: 600;
     margin-right: 8px;
     margin-bottom: 10px;
+    backdrop-filter: blur(6px);
 }
 .badge-route {
     background: rgba(14, 165, 233, 0.12);
@@ -461,65 +539,199 @@ div[data-testid="stFileUploaderDropzone"] *,
 .hero-card-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    margin-top: 14px;
-    margin-bottom: 20px;
+    gap: 14px;
+    margin-top: 16px;
+    margin-bottom: 22px;
+}
+@media (max-width: 900px) {
+    .hero-card-grid { grid-template-columns: 1fr; }
 }
 .hero-card-item {
-    background: rgba(15, 23, 42, 0.65);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 12px 14px;
+    position: relative;
+    background: linear-gradient(180deg, rgba(17, 26, 46, 0.85), rgba(13, 20, 36, 0.85));
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px 18px;
+    overflow: hidden;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.hero-card-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(56, 189, 248, 0.4);
+    box-shadow: 0 8px 24px rgba(2, 6, 16, 0.45), 0 0 0 1px rgba(56, 189, 248, 0.12);
+}
+.hero-card-item::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--hero-accent, var(--grad));
+    opacity: 0.9;
 }
 .hero-card-title {
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 700;
-    color: #94a3b8;
+    color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
 }
 .hero-card-value {
     font-size: 13.5px;
     font-weight: 600;
     color: #f8fafc;
+    line-height: 1.45;
 }
 
 /* Headers */
 .hero-title {
-    font-size: 26px;
-    font-weight: 700;
+    font-size: 30px;
+    font-weight: 800;
     color: #f8fafc;
-    margin-bottom: 6px;
-    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+    letter-spacing: -0.6px;
+}
+.hero-title .grad {
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 .hero-sub {
-    color: #94a3b8;
+    color: var(--muted);
     font-size: 14.5px;
     margin-bottom: 16px;
-    line-height: 1.5;
+    line-height: 1.55;
+    max-width: 760px;
 }
 .empty-card {
-    background: rgba(15, 23, 42, 0.5);
-    border: 1px dashed rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(17, 26, 46, 0.6), rgba(13, 20, 36, 0.6));
+    border: 1px dashed rgba(148, 163, 184, 0.28);
+    border-radius: 16px;
     text-align: center;
-    padding: 40px 20px;
-    margin-top: 20px;
+    padding: 48px 24px;
+    margin-top: 24px;
 }
-.empty-card h4 { color: #cbd5e1; font-size: 18px; margin-bottom: 6px; }
-.empty-card p { color: #64748b; font-size: 13.5px; }
+.empty-card .empty-icon {
+    font-size: 34px;
+    margin-bottom: 12px;
+}
+.empty-card h4 { color: #e2e8f0; font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+.empty-card p { color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+
+/* Live Stats Strip */
+.stats-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 22px;
+}
+@media (max-width: 900px) {
+    .stats-strip { grid-template-columns: repeat(2, 1fr); }
+}
+.stat-card {
+    background: linear-gradient(180deg, rgba(17, 26, 46, 0.8), rgba(13, 20, 36, 0.8));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.stat-icon {
+    width: 38px; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+    font-size: 17px;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    flex-shrink: 0;
+}
+.stat-value {
+    font-size: 19px;
+    font-weight: 800;
+    color: #f8fafc;
+    line-height: 1.1;
+    letter-spacing: -0.3px;
+}
+.stat-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
 
 /* Progress & Metrics */
 .metric-box {
-    background: rgba(15, 23, 42, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    padding: 12px;
+    background: linear-gradient(180deg, rgba(17, 26, 46, 0.85), rgba(13, 20, 36, 0.85));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 10px;
     text-align: center;
+    transition: border-color 0.2s ease, transform 0.2s ease;
 }
-.metric-val { font-size: 20px; font-weight: 700; color: #f8fafc; }
-.metric-lbl { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+.metric-box:hover {
+    border-color: rgba(56, 189, 248, 0.4);
+    transform: translateY(-1px);
+}
+.metric-val {
+    font-size: 22px;
+    font-weight: 800;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.2;
+}
+.metric-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; margin-top: 2px; }
+
+/* Sidebar status pills */
+.status-pill-ok, .status-pill-missing {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+.status-pill-ok { animation: pulse-ok 2.4s ease-in-out infinite; }
+@keyframes pulse-ok {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.25); }
+    50% { box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.06); }
+}
+
+/* Sidebar brand card */
+.brand-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(129, 140, 248, 0.1));
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    margin-bottom: 14px;
+}
+.brand-logo {
+    background: var(--grad);
+    padding: 9px 13px;
+    border-radius: 11px;
+    font-size: 21px;
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+}
+.brand-name { font-weight: 800; font-size: 16px; color: #f8fafc; letter-spacing: -0.2px; }
+.brand-tag { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* DB count chip in knowledge base headers */
+.count-chip {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: #7dd3fc;
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 6px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -567,11 +779,11 @@ if "memory" not in st.session_state:
 with st.sidebar:
     # Brand Card
     st.markdown("""
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <div style="background:linear-gradient(135deg, #0ea5e9, #6366f1);padding:8px 12px;border-radius:10px;font-size:20px;">⚡</div>
+    <div class="brand-card">
+        <div class="brand-logo">⚡</div>
         <div>
-            <div style="font-weight:700;font-size:16px;color:#f8fafc;">Production AI System</div>
-            <div style="font-size:11.5px;color:#94a3b8;">LiteParse + Guardrails + Telemetry</div>
+            <div class="brand-name">Production AI System</div>
+            <div class="brand-tag">LiteParse + Guardrails + Telemetry</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -602,7 +814,7 @@ with st.sidebar:
     if api_key:
         for db_key, (icon, label, color) in DB_LABELS.items():
             count = st.session_state.doc_counts[db_key]
-            with st.expander(f"{icon} {label} ({count} chunks)", expanded=False):
+            with st.expander(f"{icon} {label} — {count} chunk{'s' if count != 1 else ''}", expanded=False):
                 uploaded = st.file_uploader(
                     f"Upload {label}",
                     type=["pdf", "docx", "xlsx", "pptx", "png", "jpg", "jpeg", "webp", "txt", "md"],
@@ -658,16 +870,33 @@ with st.sidebar:
                     )
                 st.info(f"Engine Used: {engine_lbl}")
                 st.text_area("Extracted Image Text", value="\n\n".join(img_chunks), height=140)
+    else:
+        st.markdown("""
+        <div style="border:1px dashed rgba(148,163,184,0.25);border-radius:12px;padding:16px 14px;
+                    color:#8b98ad;font-size:12.5px;line-height:1.55;text-align:center;">
+            🔒 Connect your Groq API key above<br>to manage the knowledge bases.
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 
-    # Section 3: Telemetry Counters
-    st.markdown('<div class="sidebar-section-header">3. TELEMETRY COUNTERS</div>', unsafe_allow_html=True)
-    m1, m2 = st.columns(2)
-    with m1:
-        st.markdown(f'<div class="metric-box"><div class="metric-val">{st.session_state.total_queries}</div><div class="metric-lbl">Queries</div></div>', unsafe_allow_html=True)
-    with m2:
-        st.markdown(f'<div class="metric-box"><div class="metric-val">{st.session_state.fallback_count}</div><div class="metric-lbl">Fallbacks</div></div>', unsafe_allow_html=True)
+    # Section 3: Database Distribution (session totals live in the header stats strip)
+    st.markdown('<div class="sidebar-section-header">3. DATABASE DISTRIBUTION</div>', unsafe_allow_html=True)
+    total_chunks = max(sum(st.session_state.doc_counts.values()), 1)
+    for db_key, (icon, label, color) in DB_LABELS.items():
+        cnt = st.session_state.doc_counts[db_key]
+        pct = cnt * 100 // total_chunks if cnt else 0
+        st.markdown(f"""
+        <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+                <span style="color:#cbd5e1;font-weight:600;">{icon}&nbsp;&nbsp;{label}</span>
+                <span style="color:#8b98ad;font-weight:700;">{cnt}</span>
+            </div>
+            <div style="height:6px;border-radius:999px;background:rgba(148,163,184,0.12);overflow:hidden;">
+                <div style="height:100%;width:{max(pct, 2 if cnt else 0)}%;background:{color};border-radius:999px;"></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
 
@@ -675,46 +904,72 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-header">4. SESSION MEMORY</div>', unsafe_allow_html=True)
     turns_count = len(st.session_state.memory.messages) // 2
     st.markdown(f"<p style='font-size:12px;color:#94a3b8;'>Active Memory Turns: <strong>{turns_count} / {st.session_state.memory.max_turns}</strong></p>", unsafe_allow_html=True)
-    if st.button("🗑️ Reset Session Memory", use_container_width=True):
-        st.session_state.messages = []
-        st.session_state.metadata = {}
-        st.session_state.memory.clear()
-        st.session_state.total_queries = 0
-        st.session_state.fallback_count = 0
-        st.rerun()
+    with st.container():
+        st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+        if st.button("🗑️ Reset Session Memory", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.metadata = {}
+            st.session_state.memory.clear()
+            st.session_state.total_queries = 0
+            st.session_state.fallback_count = 0
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
     # Section 5: Quick Samples
     st.markdown('<div class="sidebar-section-header">5. QUICK DEMO QUERIES</div>', unsafe_allow_html=True)
     for q in EXAMPLE_QUERIES:
+        st.markdown('<div class="demo-query-btn">', unsafe_allow_html=True)
         if st.button(q[:50] + ("..." if len(q) > 50 else ""), use_container_width=True, key=f"ex_{q}"):
             st.session_state.pending_query = q
+        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # -- Main Workspace Header -----------------------------------------------------
 
-st.markdown("""
+total_docs = sum(st.session_state.doc_counts.values())
+turns_now = len(st.session_state.memory.messages) // 2
+
+st.markdown(f"""
 <div>
-    <div class="hero-title">Production AI System Architecture</div>
+    <div class="hero-title">Production AI System <span class="grad">Architecture</span></div>
     <div class="hero-sub">
-        Enterprise RAG Pipeline featuring <strong style="color:#0ea5e9;">LiteParse Layout Engine</strong>,
-        <strong style="color:#10b981;">Session Memory</strong>,
-        <strong style="color:#f59e0b;">Observability Tracing</strong>, and
+        Enterprise RAG Pipeline featuring <strong style="color:#38bdf8;">LiteParse Layout Engine</strong>,
+        <strong style="color:#34d399;">Session Memory</strong>,
+        <strong style="color:#fbbf24;">Observability Tracing</strong>, and
         <strong style="color:#c084fc;">Faithfulness Evaluation</strong>.
     </div>
+    <div class="stats-strip">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(56,189,248,0.1);border-color:rgba(56,189,248,0.22);">📚</div>
+            <div><div class="stat-value">{total_docs}</div><div class="stat-label">Chunks Indexed</div></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(52,211,153,0.1);border-color:rgba(52,211,153,0.22);">💬</div>
+            <div><div class="stat-value">{st.session_state.total_queries}</div><div class="stat-label">Queries Served</div></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(192,132,252,0.1);border-color:rgba(192,132,252,0.22);">🌐</div>
+            <div><div class="stat-value">{st.session_state.fallback_count}</div><div class="stat-label">Web Fallbacks</div></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background:rgba(251,191,36,0.1);border-color:rgba(251,191,36,0.22);">🧠</div>
+            <div><div class="stat-value">{turns_now}/{st.session_state.memory.max_turns}</div><div class="stat-label">Memory Turns</div></div>
+        </div>
+    </div>
     <div class="hero-card-grid">
-        <div class="hero-card-item">
+        <div class="hero-card-item" style="--hero-accent: linear-gradient(90deg, #38bdf8, #0ea5e9);">
             <div class="hero-card-title">Document Parser</div>
-            <div class="hero-card-value" style="color:#38bdf8;">⚡ LiteParse Multi-Format Engine (PDF, DOCX, XLSX, PPTX, Images)</div>
+            <div class="hero-card-value" style="color:#7dd3fc;">⚡ LiteParse Multi-Format Engine<br><span style="color:#8b98ad;font-weight:500;font-size:12px;">PDF · DOCX · XLSX · PPTX · Images</span></div>
         </div>
-        <div class="hero-card-item">
+        <div class="hero-card-item" style="--hero-accent: linear-gradient(90deg, #34d399, #10b981);">
             <div class="hero-card-title">Safety Guardrails</div>
-            <div class="hero-card-value" style="color:#34d399;">🛡️ Enforced (Prompt Injection Protection)</div>
+            <div class="hero-card-value" style="color:#6ee7b7;">🛡️ Enforced on Every Request<br><span style="color:#8b98ad;font-weight:500;font-size:12px;">Prompt Injection Protection</span></div>
         </div>
-        <div class="hero-card-item">
+        <div class="hero-card-item" style="--hero-accent: linear-gradient(90deg, #fbbf24, #f59e0b);">
             <div class="hero-card-title">Faithfulness Evaluator</div>
-            <div class="hero-card-value" style="color:#fbbf24;">🎯 Active (Deterministic Confidence Scoring)</div>
+            <div class="hero-card-value" style="color:#fcd34d;">🎯 Active on Every Answer<br><span style="color:#8b98ad;font-weight:500;font-size:12px;">Deterministic Confidence Scoring</span></div>
         </div>
     </div>
 </div>
@@ -758,14 +1013,14 @@ for i, message in enumerate(st.session_state.messages):
                 for s in result.trace.steps:
                     st.markdown(f"- `{s.step_name}`: **{s.latency_ms:.1f} ms** *(Details: {s.details})*")
 
-total_docs = sum(st.session_state.doc_counts.values())
-
 if not st.session_state.messages:
     st.markdown("""
     <div class="empty-card">
+        <div class="empty-icon">🚀</div>
         <h4>System Ready for Queries</h4>
         <p>Your prompt will be processed through Input Guardrails, routed to the target Qdrant Vector Store,<br>
-        and evaluated for faithfulness with millisecond-level telemetry tracing.</p>
+        and evaluated for faithfulness with millisecond-level telemetry tracing.<br>
+        <span style="opacity:0.75;">Try a quick demo query from the sidebar, or type below.</span></p>
     </div>
     """, unsafe_allow_html=True)
 
