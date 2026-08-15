@@ -100,7 +100,7 @@ Remaining failures are analyzed per-question in the [evaluation report](docs/EVA
 
 ```bash
 git clone <repo-url> && cd rag_apps/rag_agent_with_database_routing
-cp .env.example .env          # then add your GROQ_API_KEY
+cp .env.example .env          # then add your GROQ_API_KEY (or paste any Groq/OpenAI/Gemini key directly in the UI sidebar)
 uv sync                       # install dependencies
 uv run streamlit run app.py   # open http://localhost:8501
 ```

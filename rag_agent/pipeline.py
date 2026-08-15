@@ -16,6 +16,7 @@ from .embeddings import FastEmbeddings
 from .evaluator import EvaluationResult, FaithfulnessEvaluator
 from .fallback import run_fallback
 from .guardrails import GuardrailResult, InputGuardrail, OutputGuardrail
+from .llm import get_active_model
 from .memory import ConversationMemory
 from .postprocess import numbers_grounded, strip_citations
 from .quota import chat_with_quota_retry
@@ -125,6 +126,7 @@ def run_pipeline(
     )
 
     # Step 4: Generation / Fallback
+    effective_model = get_active_model() or MODEL
     if docs:
         context_str = "\n\n".join(f"[{i+1}] {doc.text}" for i, doc in enumerate(docs))
 
@@ -139,7 +141,7 @@ def run_pipeline(
         with Timer() as t_gen:
             response = chat_with_quota_retry(
                 groq_client,
-                model=MODEL,
+                model=effective_model,
                 messages=[
                     {"role": "system", "content": RAG_SYSTEM},
                     {"role": "user", "content": full_user_prompt},
@@ -153,7 +155,7 @@ def run_pipeline(
             if not numbers_grounded(answer, doc_texts_gen):
                 response = chat_with_quota_retry(
                     groq_client,
-                    model=MODEL,
+                    model=effective_model,
                     messages=[
                         {"role": "system", "content": RAG_SYSTEM},
                         {"role": "user", "content": full_user_prompt},
@@ -164,7 +166,7 @@ def run_pipeline(
                 )
                 answer = response.choices[0].message.content or answer
             answer = strip_citations(answer)
-        trace.add_step("LLM Grounded Generator", t_gen.elapsed_ms, f"Model: {MODEL}")
+        trace.add_step("LLM Grounded Generator", t_gen.elapsed_ms, f"Model: {effective_model}")
         used_fallback = False
     else:
         with Timer() as t_fall:

@@ -16,9 +16,10 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from rag_agent import ConversationMemory, DocumentParser, PipelineResult, build_pipeline, run_pipeline
+from rag_agent import ConversationMemory, DocumentParser, PipelineResult, run_pipeline
 from rag_agent.databases import add_documents, doc_count, reset_databases
 from rag_agent.evaluator import EvaluationResult
+from rag_agent.llm import PROVIDERS, PROVIDER_ORDER, build_client as build_llm_client, model_for, set_active
 from rag_agent.memory import ChatMessage
 from rag_agent.retriever import RetrievedDoc
 from rag_agent.router import RoutingDecision
@@ -967,16 +968,31 @@ if st.session_state.current_project is None:
 
 
 @st.cache_resource(show_spinner=False)
-def _shared_pipeline(api_key: str):
-    """One pipeline (Qdrant client) shared by every browser session.
+def _shared_vector_engine():
+    """One Qdrant + embeddings engine shared by every browser session.
     Required when QDRANT_PATH persists an embedded store: opening the same
     directory from multiple clients concurrently can lose writes."""
-    return build_pipeline(api_key)
+    from rag_agent.databases import build_databases
+
+    return build_databases()
 
 
-def _get_pipeline(api_key: str):
-    if st.session_state.pipeline is None:
-        st.session_state.pipeline = _shared_pipeline(api_key)
+@st.cache_resource(show_spinner=False)
+def _shared_llm_client(provider: str, api_key: str):
+    """OpenAI-compatible client per (provider, key), shared across sessions."""
+    return build_llm_client(provider, api_key)
+
+
+def _get_pipeline(provider: str, api_key: str):
+    """Pipeline tuple for the ACTIVE provider; rebuilt when the provider or
+    key changes, so users can switch LLMs mid-session."""
+    sig = (provider, api_key)
+    if st.session_state.pipeline is None or st.session_state.get("llm_sig") != sig:
+        client, embeddings = _shared_vector_engine()
+        llm_client = _shared_llm_client(provider, api_key)
+        st.session_state.pipeline = (client, embeddings, llm_client)
+        st.session_state.llm_sig = sig
+    set_active(provider)  # keep router/generator/fallback model in sync
     # The vector index must always reflect the ACTIVE project; it is rebuilt
     # lazily here (after init) and after every project switch.
     _ensure_index_for_current_project()
@@ -1066,21 +1082,41 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 2: Configuration
+    # Section 2: Configuration (multi-provider: Groq / OpenAI / Gemini)
     st.markdown('<div class="sidebar-section-header">2. SYSTEM CONFIGURATION</div>', unsafe_allow_html=True)
-    groq_api_key = st.text_input(
-        "Groq API Key",
-        type="password",
-        value=os.getenv("GROQ_API_KEY", ""),
-        placeholder="gsk_...",
-        label_visibility="collapsed",
-    )
 
-    api_key = groq_api_key
-    if groq_api_key:
-        st.markdown('<div class="status-pill-ok">● LLM Engine Connected</div>', unsafe_allow_html=True)
+    provider_keys = {
+        "groq": st.text_input(
+            "Groq API Key", type="password", key="key_groq",
+            value=os.getenv("GROQ_API_KEY", ""), placeholder="gsk_...",
+        ),
+        "openai": st.text_input(
+            "OpenAI API Key", type="password", key="key_openai",
+            value=os.getenv("OPENAI_API_KEY", ""), placeholder="sk-...",
+        ),
+        "gemini": st.text_input(
+            "Gemini API Key", type="password", key="key_gemini",
+            value=os.getenv("GEMINI_API_KEY", ""), placeholder="AIza...",
+        ),
+    }
+    available_providers = [p for p in PROVIDER_ORDER if provider_keys[p].strip()]
+
+    if available_providers:
+        provider = st.selectbox(
+            "Active LLM Provider",
+            options=available_providers,
+            key="provider_select",
+            format_func=lambda p: f"{PROVIDERS[p]['label']} — {model_for(p)}",
+        )
+        api_key = provider_keys[provider].strip()
+        st.markdown(
+            f'<div class="status-pill-ok">● {PROVIDERS[provider]["label"]} Connected — {model_for(provider)}</div>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown('<div class="status-pill-missing">○ API Key Required</div>', unsafe_allow_html=True)
+        provider = None
+        api_key = ""
+        st.markdown('<div class="status-pill-missing">○ Paste any API key to connect</div>', unsafe_allow_html=True)
 
     st.divider()
 
@@ -1131,7 +1167,9 @@ with st.sidebar:
                               disabled=(uploaded is None and not pasted.strip())):
                     if st.session_state.pipeline is None:
                         with st.spinner("Initializing Vector Engine..."):
-                            _get_pipeline(groq_api_key)
+                            _get_pipeline(provider, api_key)
+                    else:
+                        _get_pipeline(provider, api_key)  # rebuild if provider switched
                     groq_client = st.session_state.pipeline[2]
                     with st.spinner("Parsing document (no indexing yet)..."):
                         parsed_chunks, engine_used = _parse_inputs(groq_client)
@@ -1165,7 +1203,9 @@ with st.sidebar:
                 if pc2.button(f"Ingest into {label}", key=f"add_{db_key}", use_container_width=True):
                     if st.session_state.pipeline is None:
                         with st.spinner("Initializing Vector Engine..."):
-                            _get_pipeline(groq_api_key)
+                            _get_pipeline(provider, api_key)
+                    else:
+                        _get_pipeline(provider, api_key)  # rebuild if provider switched
 
                     client, embeddings, groq_client = st.session_state.pipeline
 
@@ -1213,7 +1253,7 @@ with st.sidebar:
         st.markdown("""
         <div style="border:1px dashed rgba(148,163,184,0.25);border-radius:12px;padding:16px 14px;
                     color:#8b98ad;font-size:12.5px;line-height:1.55;text-align:center;">
-            🔒 Connect your Groq API key above<br>to manage the knowledge bases.
+            🔒 Paste an API key above (Groq, OpenAI, or Gemini)<br>to manage the knowledge bases.
         </div>
         """, unsafe_allow_html=True)
 
@@ -1394,13 +1434,15 @@ else:
 # -- Execution Stream ----------------------------------------------------------
 
 if prompt:
-    if not groq_api_key:
-        st.error("Enter your Groq API Key in the sidebar to proceed.")
+    if not api_key:
+        st.error("Paste an API key (Groq, OpenAI, or Gemini) in the sidebar to proceed.")
         st.stop()
 
     if st.session_state.pipeline is None:
         with st.spinner("Initializing Vector Stores & Agents..."):
-            _get_pipeline(groq_api_key)
+            _get_pipeline(provider, api_key)
+    else:
+        _get_pipeline(provider, api_key)  # rebuild if provider/key changed
 
     client, embeddings, groq_client = st.session_state.pipeline
 

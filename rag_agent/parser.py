@@ -16,6 +16,8 @@ import os
 import re
 from typing import BinaryIO, Any
 
+from .llm import vision_models_for
+
 
 def chunk_markdown(raw_text: str) -> list[str]:
     """
@@ -197,7 +199,7 @@ class DocumentParser:
                 "without any conversational intro, preamble, or commentary."
             )
 
-            vision_models = ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]
+            vision_models = vision_models_for()  # provider-aware (Groq LLaMA Vision / GPT-4o / Gemini)
             for model_name in vision_models:
                 try:
                     response = groq_client.chat.completions.create(

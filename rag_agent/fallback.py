@@ -12,6 +12,7 @@ import os
 from ddgs import DDGS
 from openai import OpenAI
 
+from .llm import get_active_model
 from .quota import chat_with_quota_retry
 
 MODEL = os.getenv("RAG_MODEL", "llama-3.3-70b-versatile")
@@ -33,7 +34,7 @@ def run_fallback(client: OpenAI, query: str) -> str:
 
     response = chat_with_quota_retry(
         client,
-        model=MODEL,
+        model=get_active_model() or MODEL,
         messages=[
             {
                 "role": "system",
