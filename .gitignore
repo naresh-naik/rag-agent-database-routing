@@ -16,6 +16,9 @@ __pycache__/
 # Evaluation artifacts (large JSON outputs)
 eval_artifacts/
 
+# Local project workspaces (user-uploaded documents & chats)
+.projects/
+
 # Logs
 *.log
 

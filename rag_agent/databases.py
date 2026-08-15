@@ -107,3 +107,24 @@ def doc_count(client: QdrantClient, collection_name: str) -> int:
     """Return the number of vectors stored in a collection."""
     info = client.get_collection(collection_name)
     return info.points_count or 0
+
+
+def reset_databases(client: QdrantClient, embeddings: FastEmbeddings) -> None:
+    """Drop and recreate all collections (empty schema, same vector config).
+
+    Used when switching project workspaces: the shared Qdrant store is
+    cleared and re-populated from the target project's saved chunks.
+    """
+    sparse_config = (
+        {SPARSE_VECTOR_NAME: SparseVectorParams(index=SparseIndexParams())}
+        if embeddings.has_sparse
+        else None
+    )
+    for collection_name in COLLECTIONS:
+        if client.collection_exists(collection_name):
+            client.delete_collection(collection_name)
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            sparse_vectors_config=sparse_config,
+        )

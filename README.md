@@ -66,6 +66,7 @@ flowchart LR
 - **Deterministic answer guards**: numbers must appear in the retrieved context (auto-regenerate), bracketed citations stripped
 - **Guardrails** (input/output policy), **faithfulness evaluation**, **conversation memory**, **latency telemetry**
 - **Web fallback** via DuckDuckGo when retrieval clears nothing
+- **Project workspaces**: create named projects, upload documents per project, switch anytime — chats, telemetry, and vector indexes persist locally (`.projects/`, rebuilt with zero-cost local embeddings)
 - 100% local embeddings via FastEmbed — no embedding API cost
 - **27 passing unit/integration tests** + resumable, checkpointed evaluation harnesses + CI on every push
 

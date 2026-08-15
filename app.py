@@ -5,13 +5,24 @@ UI/UX Pro Max Theme with Glassmorphism, Sidebar Controls & Custom Bottom Layout.
 
 from __future__ import annotations
 
+import html
+import json
 import os
+import shutil
+import uuid
+from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
 
 from rag_agent import ConversationMemory, DocumentParser, PipelineResult, build_pipeline, run_pipeline
-from rag_agent.databases import add_documents, doc_count
+from rag_agent.databases import add_documents, doc_count, reset_databases
+from rag_agent.evaluator import EvaluationResult
+from rag_agent.memory import ChatMessage
+from rag_agent.retriever import RetrievedDoc
+from rag_agent.router import RoutingDecision
+from rag_agent.telemetry import ExecutionTrace
 
 load_dotenv()
 
@@ -35,6 +46,165 @@ EXAMPLE_QUERIES = [
     "Tell me about the DataFlow Analytics Suite features.",
     "How much does the Enterprise plan cost?",
 ]
+
+# -- Project Workspaces (local persistence) -------------------------------------
+# Each project lives in .projects/<id>/ with meta.json, chunks.json (per-DB
+# chunk text, the source of truth for index rebuilds) and chat.json
+# (messages + serialized pipeline metadata). Switching projects rebuilds the
+# shared Qdrant index from chunks.json using local FastEmbed (zero API cost).
+
+PROJECTS_DIR = Path(__file__).resolve().parent / ".projects"
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _write_json(path: Path, data) -> None:
+    """Atomic JSON write (temp file + rename) so a crash never corrupts state."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def _new_project(name: str) -> str:
+    """Create an empty project on disk and return its id."""
+    pid = uuid.uuid4().hex[:10]
+    pdir = PROJECTS_DIR / pid
+    _write_json(pdir / "meta.json", {"name": name.strip() or "Untitled Project", "created": _now_iso(), "updated": _now_iso()})
+    _write_json(pdir / "chunks.json", {db: [] for db in DB_LABELS})
+    _write_json(pdir / "chat.json", {"messages": [], "metadata": {}, "total_queries": 0, "fallback_count": 0})
+    return pid
+
+
+def _load_projects_index() -> dict[str, dict]:
+    """All projects on disk: id -> meta (with total chunk count), newest first."""
+    index: dict[str, dict] = {}
+    if PROJECTS_DIR.exists():
+        for pdir in PROJECTS_DIR.iterdir():
+            if not pdir.is_dir() or pdir.name.startswith((".", "_")):
+                continue  # skip macOS AppleDouble artifacts & stray files
+            meta = _read_json(pdir / "meta.json", None)
+            if not isinstance(meta, dict) or "name" not in meta:
+                continue
+            chunks = _read_json(pdir / "chunks.json", {})
+            meta["total_chunks"] = sum(len(v) for v in chunks.values() if isinstance(v, list))
+            index[pdir.name] = meta
+    return dict(sorted(index.items(), key=lambda kv: kv[1].get("updated", ""), reverse=True))
+
+
+def _save_project_chunks(pid: str, chunks_by_db: dict[str, list[str]]) -> None:
+    _write_json(PROJECTS_DIR / pid / "chunks.json", chunks_by_db)
+    meta = _read_json(PROJECTS_DIR / pid / "meta.json", {})
+    meta["updated"] = _now_iso()
+    _write_json(PROJECTS_DIR / pid / "meta.json", meta)
+
+
+def _save_project_chat(pid: str) -> None:
+    """Persist the current session's chat + counters into the project."""
+    metadata_snap = {str(i): _snapshot_metadata(r) for i, r in st.session_state.metadata.items()}
+    _write_json(PROJECTS_DIR / pid / "chat.json", {
+        "messages": st.session_state.messages,
+        "metadata": metadata_snap,
+        "total_queries": st.session_state.total_queries,
+        "fallback_count": st.session_state.fallback_count,
+    })
+    meta = _read_json(PROJECTS_DIR / pid / "meta.json", {})
+    meta["updated"] = _now_iso()
+    _write_json(PROJECTS_DIR / pid / "meta.json", meta)
+
+
+def _snapshot_metadata(result: PipelineResult) -> dict:
+    """Serialize a PipelineResult into a JSON-safe dict for chat.json."""
+    return {
+        "routing": {"database": result.routing.database, "reasoning": result.routing.reasoning},
+        "used_fallback": result.used_fallback,
+        "evaluation": {
+            "groundedness_score": result.evaluation.groundedness_score,
+            "is_faithful": result.evaluation.is_faithful,
+            "status_label": result.evaluation.status_label,
+        },
+        "docs": [{"text": d.text, "score": d.score, "source": d.source} for d in result.docs],
+        "trace": {
+            "total_latency_ms": result.trace.total_latency_ms,
+            "steps": [
+                {"step_name": s.step_name, "latency_ms": s.latency_ms, "details": s.details}
+                for s in result.trace.steps
+            ],
+        },
+    }
+
+
+def _restore_metadata(snap: dict) -> PipelineResult:
+    """Rebuild a PipelineResult from a chat.json snapshot (badges, sources, telemetry)."""
+    trace = ExecutionTrace()
+    for s in snap.get("trace", {}).get("steps", []):
+        trace.add_step(s.get("step_name", ""), s.get("latency_ms", 0.0), s.get("details", ""))
+    trace.total_latency_ms = snap.get("trace", {}).get("total_latency_ms", 0.0)
+    ev = snap.get("evaluation", {})
+    return PipelineResult(
+        answer="",
+        routing=RoutingDecision(database=snap.get("routing", {}).get("database", "support"),
+                                reasoning=snap.get("routing", {}).get("reasoning", "")),
+        docs=[RetrievedDoc(text=d["text"], score=d["score"], source=d.get("source", "")) for d in snap.get("docs", [])],
+        used_fallback=snap.get("used_fallback", False),
+        evaluation=EvaluationResult(
+            groundedness_score=ev.get("groundedness_score", 1.0),
+            is_faithful=ev.get("is_faithful", True),
+            status_label=ev.get("status_label", "Grounded"),
+        ),
+        trace=trace,
+    )
+
+
+def _load_project_into_session(pid: str) -> None:
+    """Restore a project's chat/memory/counters into session state and flag
+    the vector index for rebuild (rebuilt lazily once a pipeline exists)."""
+    chat = _read_json(PROJECTS_DIR / pid / "chat.json", {})
+    st.session_state.messages = chat.get("messages", [])
+    st.session_state.metadata = {
+        int(i): _restore_metadata(s) for i, s in chat.get("metadata", {}).items()
+    }
+    st.session_state.total_queries = chat.get("total_queries", 0)
+    st.session_state.fallback_count = chat.get("fallback_count", 0)
+    mem_msgs = [ChatMessage(role=m["role"], content=m["content"]) for m in st.session_state.messages]
+    memory = ConversationMemory()
+    memory.messages = mem_msgs[-memory.max_turns * 2:]
+    st.session_state.memory = memory
+    chunks = _read_json(PROJECTS_DIR / pid / "chunks.json", {})
+    st.session_state.doc_counts = {db: len(chunks.get(db, [])) for db in DB_LABELS}
+    st.session_state.current_project = pid
+    st.session_state.index_dirty = True  # vector store must be rebuilt from chunks
+
+
+def _ensure_index_for_current_project() -> None:
+    """Rebuild the shared Qdrant index from the current project's chunks.
+
+    Local FastEmbed only - no API cost. Called after pipeline init and on
+    project switch (when a pipeline already exists).
+    """
+    if not st.session_state.index_dirty or st.session_state.pipeline is None:
+        return
+    pid = st.session_state.current_project
+    client, embeddings, _ = st.session_state.pipeline
+    chunks_by_db = _read_json(PROJECTS_DIR / pid / "chunks.json", {})
+    with st.spinner("Rebuilding project vector index (local embeddings)..."):
+        reset_databases(client, embeddings)
+        for db_key in DB_LABELS:
+            db_chunks = chunks_by_db.get(db_key, [])
+            if db_chunks:
+                add_documents(client, embeddings, db_key, db_chunks)
+        for db_key in DB_LABELS:
+            st.session_state.doc_counts[db_key] = doc_count(client, db_key)
+    st.session_state.index_dirty = False
 
 # -- Page Config & UI/UX Pro Max Theme -----------------------------------------
 
@@ -732,6 +902,34 @@ div[data-testid="stFileUploaderDropzone"] *,
     font-weight: 700;
     margin-left: 6px;
 }
+
+/* Selectbox (project switcher) dark overrides */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    background: #0f172a !important;
+    border-color: rgba(255, 255, 255, 0.15) !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover {
+    border-color: rgba(56, 189, 248, 0.5) !important;
+}
+[data-baseweb="popover"] {
+    background: #0f172a !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 10px !important;
+}
+[data-baseweb="menu"] {
+    background: #0f172a !important;
+}
+[data-baseweb="menu"] li {
+    background: transparent !important;
+    color: #e6edf7 !important;
+}
+[data-baseweb="menu"] li:hover {
+    background: #1e293b !important;
+}
+[data-baseweb="menu"] li[aria-selected="true"] {
+    background: rgba(14, 165, 233, 0.18) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -751,6 +949,19 @@ if "fallback_count" not in st.session_state:
     st.session_state.fallback_count = 0
 if "doc_counts" not in st.session_state:
     st.session_state.doc_counts: dict[str, int] = {"products": 0, "support": 0, "financial": 0}
+if "current_project" not in st.session_state:
+    st.session_state.current_project = None
+if "index_dirty" not in st.session_state:
+    st.session_state.index_dirty = False
+
+# -- Project Bootstrap: restore last-opened project (or create the first) ------
+
+if st.session_state.current_project is None:
+    _projects = _load_projects_index()
+    if _projects:
+        _load_project_into_session(next(iter(_projects)))  # most recently updated
+    else:
+        st.session_state.current_project = _new_project("My First Project")
 
 
 @st.cache_resource(show_spinner=False)
@@ -764,11 +975,9 @@ def _shared_pipeline(api_key: str):
 def _get_pipeline(api_key: str):
     if st.session_state.pipeline is None:
         st.session_state.pipeline = _shared_pipeline(api_key)
-        # Seed sidebar counts from the store so a persisted database does
-        # not show 0 docs (which would invite duplicate re-uploads).
-        client = st.session_state.pipeline[0]
-        for name in st.session_state.doc_counts:
-            st.session_state.doc_counts[name] = doc_count(client, name)
+    # The vector index must always reflect the ACTIVE project; it is rebuilt
+    # lazily here (after init) and after every project switch.
+    _ensure_index_for_current_project()
     return st.session_state.pipeline
 if "memory" not in st.session_state:
     st.session_state.memory = ConversationMemory()
@@ -790,8 +999,73 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 1: Configuration
-    st.markdown('<div class="sidebar-section-header">1. SYSTEM CONFIGURATION</div>', unsafe_allow_html=True)
+    # Section 1: Project Workspaces
+    st.markdown('<div class="sidebar-section-header">1. PROJECT WORKSPACES</div>', unsafe_allow_html=True)
+
+    projects_index = _load_projects_index()
+    current_pid = st.session_state.current_project
+    if current_pid and current_pid not in projects_index:
+        current_pid = next(iter(projects_index), None)
+
+    if projects_index:
+        selected = st.selectbox(
+            "Active project",
+            options=list(projects_index.keys()),
+            index=list(projects_index.keys()).index(current_pid) if current_pid in projects_index else 0,
+            format_func=lambda pid: f"{projects_index[pid]['name']}  ·  {projects_index[pid]['total_chunks']} chunks",
+            key="project_select",
+            label_visibility="collapsed",
+        )
+        if selected != current_pid:
+            if current_pid and (PROJECTS_DIR / current_pid).exists():
+                _save_project_chat(current_pid)  # keep the conversation we're leaving
+            _load_project_into_session(selected)
+            if st.session_state.pipeline is not None:
+                _ensure_index_for_current_project()
+            st.rerun()
+        _active_meta = projects_index.get(selected, {})
+        st.markdown(
+            f"<p style='font-size:11.5px;color:#8b98ad;margin:2px 0 8px;'>🕘 Last active: {_active_meta.get('updated', '—').replace('T', ' ')}</p>",
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("➕ New Project", expanded=not projects_index):
+        new_name = st.text_input("Project name", placeholder="e.g. Q3 Financial Review", key="new_project_name", label_visibility="collapsed")
+        if st.button("➕ Create & Switch", key="create_project", use_container_width=True):
+            if current_pid and (PROJECTS_DIR / current_pid).exists():
+                _save_project_chat(current_pid)
+            pid = _new_project(new_name)
+            _load_project_into_session(pid)
+            if st.session_state.pipeline is not None:
+                _ensure_index_for_current_project()
+            st.rerun()
+
+    if projects_index and current_pid:
+        if st.session_state.get("confirm_delete"):
+            c1, c2 = st.columns(2)
+            if c1.button("✅ Yes, delete", key="confirm_yes", use_container_width=True):
+                shutil.rmtree(PROJECTS_DIR / current_pid, ignore_errors=True)
+                st.session_state.confirm_delete = False
+                remaining = [p for p in projects_index if p != current_pid]
+                pid = remaining[0] if remaining else _new_project("My First Project")
+                _load_project_into_session(pid)
+                if st.session_state.pipeline is not None:
+                    _ensure_index_for_current_project()
+                st.rerun()
+            if c2.button("Cancel", key="confirm_no", use_container_width=True):
+                st.session_state.confirm_delete = False
+                st.rerun()
+        else:
+            st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+            if st.button("🗑️ Delete This Project", key="delete_project", use_container_width=True):
+                st.session_state.confirm_delete = True
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    # Section 2: Configuration
+    st.markdown('<div class="sidebar-section-header">2. SYSTEM CONFIGURATION</div>', unsafe_allow_html=True)
     groq_api_key = st.text_input(
         "Groq API Key",
         type="password",
@@ -808,8 +1082,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 2: Knowledge Base Drawers
-    st.markdown('<div class="sidebar-section-header">2. KNOWLEDGE BASE (LITEPARSE PARSER)</div>', unsafe_allow_html=True)
+    # Section 3: Knowledge Base Drawers
+    st.markdown('<div class="sidebar-section-header">3. KNOWLEDGE BASE (LITEPARSE PARSER)</div>', unsafe_allow_html=True)
 
     if api_key:
         for db_key, (icon, label, color) in DB_LABELS.items():
@@ -852,6 +1126,11 @@ with st.sidebar:
                         with st.spinner(f"Embedding {len(chunks)} chunk(s) via {engine_used}..."):
                             added = add_documents(client, embeddings, db_key, chunks)
                         st.session_state.doc_counts[db_key] += added
+                        # Persist chunks into the active project so its index
+                        # can be rebuilt locally on any future visit.
+                        proj_chunks = _read_json(PROJECTS_DIR / st.session_state.current_project / "chunks.json", {db: [] for db in DB_LABELS})
+                        proj_chunks.setdefault(db_key, []).extend(chunks)
+                        _save_project_chunks(st.session_state.current_project, proj_chunks)
                         st.success(f"Added {added} chunk(s) via {engine_used}.")
                         st.rerun()
                     else:
@@ -880,8 +1159,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 3: Database Distribution (session totals live in the header stats strip)
-    st.markdown('<div class="sidebar-section-header">3. DATABASE DISTRIBUTION</div>', unsafe_allow_html=True)
+    # Section 4: Database Distribution (session totals live in the header stats strip)
+    st.markdown('<div class="sidebar-section-header">4. DATABASE DISTRIBUTION</div>', unsafe_allow_html=True)
     total_chunks = max(sum(st.session_state.doc_counts.values()), 1)
     for db_key, (icon, label, color) in DB_LABELS.items():
         cnt = st.session_state.doc_counts[db_key]
@@ -900,13 +1179,22 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 4: Session Memory Controls
-    st.markdown('<div class="sidebar-section-header">4. SESSION MEMORY</div>', unsafe_allow_html=True)
+    # Section 5: Session Controls
+    st.markdown('<div class="sidebar-section-header">5. SESSION CONTROLS</div>', unsafe_allow_html=True)
     turns_count = len(st.session_state.memory.messages) // 2
     st.markdown(f"<p style='font-size:12px;color:#94a3b8;'>Active Memory Turns: <strong>{turns_count} / {st.session_state.memory.max_turns}</strong></p>", unsafe_allow_html=True)
     with st.container():
+        if st.button("🧹 New Chat (keep documents)", key="new_chat", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.metadata = {}
+            st.session_state.memory.clear()
+            st.session_state.total_queries = 0
+            st.session_state.fallback_count = 0
+            if st.session_state.current_project:
+                _save_project_chat(st.session_state.current_project)
+            st.rerun()
         st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
-        if st.button("🗑️ Reset Session Memory", use_container_width=True):
+        if st.button("🗑️ Wipe Chat + Counters", key="reset_session", use_container_width=True):
             st.session_state.messages = []
             st.session_state.metadata = {}
             st.session_state.memory.clear()
@@ -917,8 +1205,8 @@ with st.sidebar:
 
     st.divider()
 
-    # Section 5: Quick Samples
-    st.markdown('<div class="sidebar-section-header">5. QUICK DEMO QUERIES</div>', unsafe_allow_html=True)
+    # Section 6: Quick Samples
+    st.markdown('<div class="sidebar-section-header">6. QUICK DEMO QUERIES</div>', unsafe_allow_html=True)
     for q in EXAMPLE_QUERIES:
         st.markdown('<div class="demo-query-btn">', unsafe_allow_html=True)
         if st.button(q[:50] + ("..." if len(q) > 50 else ""), use_container_width=True, key=f"ex_{q}"):
@@ -930,6 +1218,10 @@ with st.sidebar:
 
 total_docs = sum(st.session_state.doc_counts.values())
 turns_now = len(st.session_state.memory.messages) // 2
+_active_project_name = (
+    _read_json(PROJECTS_DIR / st.session_state.current_project / "meta.json", {}).get("name", "Untitled")
+    if st.session_state.current_project else "Untitled"
+)
 
 st.markdown(f"""
 <div>
@@ -939,6 +1231,10 @@ st.markdown(f"""
         <strong style="color:#34d399;">Session Memory</strong>,
         <strong style="color:#fbbf24;">Observability Tracing</strong>, and
         <strong style="color:#c084fc;">Faithfulness Evaluation</strong>.
+    </div>
+    <div style="margin-bottom:16px;">
+        <span class="badge badge-route">📂 Workspace: {html.escape(str(_active_project_name))}</span>
+        <span class="badge" style="background:rgba(148,163,184,0.08);border:1px solid rgba(148,163,184,0.28);color:#cbd5e1;">💾 Auto-saved locally</span>
     </div>
     <div class="stats-strip">
         <div class="stat-card">
@@ -1101,3 +1397,7 @@ if prompt:
                 error_msg = f"**Error:** {e}"
                 st.markdown(error_msg)
                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
+
+    # Persist the conversation into the active project (local, survives restarts)
+    if st.session_state.current_project:
+        _save_project_chat(st.session_state.current_project)
