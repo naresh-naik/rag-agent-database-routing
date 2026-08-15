@@ -41,7 +41,7 @@ Run on 5 sampled questions from `run3_fixed_8b` with judge `llama-3.3-70b-versat
 Full-benchmark RAGAS command (requires Groq quota headroom):
 
 ```bash
-uv run --extra eval python evaluate_ragas.py --source run5_fixed_8b --judge-model llama-3.3-70b-versatile
+uv run --extra eval python evaluation/evaluate_ragas.py --source run5_fixed_8b --judge-model llama-3.3-70b-versatile
 ```
 
 ## Failure Analysis

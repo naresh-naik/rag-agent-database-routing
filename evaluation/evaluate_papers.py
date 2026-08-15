@@ -29,20 +29,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# -- Load Groq key from the user's stored config (never printed) ---------------
-KEY_FILE = Path("/Users/nareshramavath/.config/watch/.env")
+from dotenv import load_dotenv
+
+ROOT = Path(__file__).resolve().parents[1]  # repo root (this file lives in evaluation/)
+sys.path.insert(0, str(ROOT))  # keep `rag_agent` importable when run directly
+load_dotenv(ROOT / ".env")
 
 
 def _load_groq_key() -> str:
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if key:
-        return key
-    if KEY_FILE.exists():
-        for line in KEY_FILE.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("GROQ_API_KEY=") and not line.startswith("#"):
-                return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return ""
+    return os.getenv("GROQ_API_KEY", "").strip()
 
 
 from openai import OpenAI
@@ -327,7 +322,7 @@ def write_report(results: list[PaperResult]) -> None:
     w("- Groundedness is a lexical word-overlap heuristic; treat it as a support signal, not a "
       "semantic correctness measure.")
 
-    out = Path(__file__).parent / "EVALUATION_REPORT.md"
+    out = ROOT / "docs" / "EVALUATION_REPORT.md"
     out.write_text("\n".join(lines))
     log(f"Report written: {out}")
     print("\n" + "=" * 60)

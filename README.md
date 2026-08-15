@@ -3,7 +3,7 @@
 
 > A production-style RAG system that routes queries across three specialized Qdrant databases (products / support / financial), retrieves with **hybrid dense + BM25 search**, and answers via **Groq** — with guardrails, faithfulness evaluation, memory, telemetry, and a web-search fallback. Built evaluation-first: a 100-question benchmark drove every design change.
 
-**Benchmark headline: 52.7% → 86.7% accuracy (+34 pts) after evidence-based retrieval and prompt fixes** — see [EVALUATION_REPORT_MOD01.md](EVALUATION_REPORT_MOD01.md).
+**Benchmark headline: 52.7% → 86.7% accuracy (+34 pts) after evidence-based retrieval and prompt fixes** — see [EVALUATION_REPORT_MOD01.md](docs/EVALUATION_REPORT_MOD01.md).
 
 ## Demo
 
@@ -11,31 +11,51 @@
 
 ## Architecture
 
-```
-                    ┌──────────────────── INGESTION (offline) ────────────────────┐
-                    │ PDF → LiteParse → chunk consolidation → dense + BM25 vectors │
-                    │            → in-memory Qdrant (products/support/financial)   │
-                    └───────────────────────────────────────────────────────────────┘
+Every request flows through six guarded stages, with a web fallback when retrieval clears nothing — and every stage is observable in the UI:
 
-User query
-   │
-   ▼
-1. Input Guardrail ──── blocked ──▶ policy rejection (short-circuit)
-   │ passed
-   ▼
-2. Query Router (Groq, structured output) ──▶ picks one of 3 databases
-   │
-   ▼
-3. Hybrid Retriever: dense (bge-small-en-v1.5) + BM25 sparse
-   │                fused with Reciprocal Rank Fusion, top-k 8
-   ├── docs found ──▶ 4. Grounded Generator (Groq LLaMA-3.3 70B)
-   │                     + numeric-grounding guard + conversation memory
-   └── no docs ─────▶ 4b. Web Fallback (DuckDuckGo + Groq)
-   │
-   ▼
-5. Output Guardrail + Faithfulness Evaluator (groundedness score)
-   ▼
-6. Memory update + per-step latency trace → Streamlit UI
+```mermaid
+flowchart TB
+    subgraph OFFLINE["🏗️ INGESTION — offline, once per document"]
+        direction LR
+        PDF["📄 PDF / pasted text"] --> PARSE["LiteParse<br/>markdown extraction"]
+        PARSE --> CONS["Chunk consolidation<br/>fragments → context-complete chunks<br/><i>tables keep their headers</i>"]
+        CONS --> EMB["FastEmbed — 100% local<br/>dense bge-small + BM25 sparse"]
+        EMB --> QD[("Qdrant — 3 collections<br/>🛍️ products · 🎧 support · 💰 financial")]
+    end
+
+    Q(["💬 User query"]) --> G1
+
+    subgraph ONLINE["⚡ QUERY TIME — every request"]
+        direction TB
+        G1{"🛡️ Input guardrail"} -- "blocked" --> REJ["⛔ policy rejection<br/>short-circuit, no LLM spend"]
+        G1 -- "passed" --> ROUTE{"🧭 LLM Router<br/>Groq structured JSON output"}
+        ROUTE -- "products · support · financial" --> RET["🔎 Hybrid retrieval<br/>dense cosine + BM25 → RRF fusion · top-k 8"]
+        RET --> RER["🎯 Cross-encoder rerank"]
+        RER --> FOUND{"docs clear the<br/>relevance threshold?"}
+        FOUND -- "yes" --> GEN["✍️ Grounded generation<br/>LLaMA-3.3 70B + conversation memory"]
+        FOUND -- "no hits" --> WEB["🌐 Web fallback<br/>DuckDuckGo → Groq answer"]
+        GEN --> NUM{"🔢 Numeric grounding<br/>every figure present in context?"}
+        NUM -- "fail → auto-regenerate" --> GEN
+        NUM -- "pass" --> G2["🛡️ Output guardrail<br/>+ citation stripping"]
+        WEB --> G2
+        G2 --> FAITH["✅ Faithfulness evaluator<br/>groundedness score"]
+    end
+
+    FAITH --> UI["🖥️ Streamlit UI<br/>answer · grounded sources · live telemetry"]
+    FAITH -.-> MEM[("🧠 Conversation memory")]
+    MEM -.-> GEN
+    FAITH -.-> TELE[("📊 Per-step latency trace")]
+```
+
+And the system itself is built inside an evaluation flywheel — every improvement below came from this loop, not intuition:
+
+```mermaid
+flowchart LR
+    B["🧪 100-question benchmark<br/>LLM-as-judge"] --> C["🔬 Failure analysis<br/>per wrong answer"]
+    C --> D["🔧 Targeted fix<br/>retrieval · prompt · guards"]
+    D --> V["⚖️ Zero-token coverage check<br/>retrieval isolated from generation"]
+    V --> R["🔁 Re-judge + RAGAS metrics<br/>faithfulness · relevancy · correctness"]
+    R --> B
 ```
 
 ## Features
@@ -47,7 +67,7 @@ User query
 - **Guardrails** (input/output policy), **faithfulness evaluation**, **conversation memory**, **latency telemetry**
 - **Web fallback** via DuckDuckGo when retrieval clears nothing
 - 100% local embeddings via FastEmbed — no embedding API cost
-- **24 passing unit/integration tests** + resumable, checkpointed evaluation harnesses
+- **27 passing unit/integration tests** + resumable, checkpointed evaluation harnesses + CI on every push
 
 ## Evaluation-Driven Improvements
 
@@ -60,7 +80,7 @@ The system was benchmarked with 100 LLM-generated QA pairs from an IFRS financia
 | Hybrid BM25 + dense RRF, top-k 8 | retrieval coverage → 98% (theoretical ceiling) |
 | Exact-value generation prompt + single-value/year-default rules | **86.7% accuracy** |
 
-Remaining failures are analyzed per-question in the [evaluation report](EVALUATION_REPORT_MOD01.md), including two judge errors and two defective benchmark references excluded from aggregates.
+Remaining failures are analyzed per-question in the [evaluation report](docs/EVALUATION_REPORT_MOD01.md), including two judge errors and two defective benchmark references excluded from aggregates.
 
 ## Tech Stack
 
@@ -91,11 +111,11 @@ Requirements: Python 3.10+, a free Groq key from [console.groq.com](https://cons
 ```bash
 # 100-question accuracy benchmark (needs a PDF; pass --pdf or set EVAL_PDF,
 # or place it in ./data/9781513563602-mod01.pdf)
-uv run python evaluate_pdf_module.py --label run1 \
+uv run python evaluation/evaluate_pdf_module.py --label run1 \
     --judge-model llama-3.1-8b-instant
 
 # Zero-token retrieval coverage check (no API cost)
-uv run python coverage_check.py
+uv run python evaluation/coverage_check.py
 
 # Tests
 uv run python -m pytest tests/ -q
@@ -107,27 +127,34 @@ Results checkpoint after every question, so runs resume automatically after rate
 
 ```text
 rag_agent_with_database_routing/
-├── rag_agent/
-│   ├── pipeline.py      # Orchestration: guardrail → route → retrieve → generate → evaluate
-│   ├── router.py        # Groq structured-output database router
-│   ├── retriever.py     # Hybrid dense+BM25 retrieval with RRF fusion
-│   ├── databases.py     # Qdrant collections + ingestion (with consolidation)
-│   ├── embeddings.py    # FastEmbed dense + sparse embeddings
-│   ├── parser.py        # PDF parsing + chunk consolidation
-│   ├── postprocess.py   # Citation stripping + numeric-grounding guard
-│   ├── guardrails.py    # Input/output safety policies
-│   ├── evaluator.py     # Faithfulness (groundedness) evaluation
-│   ├── memory.py        # Conversation memory
-│   ├── telemetry.py     # Per-step latency traces
-│   └── fallback.py      # DuckDuckGo web fallback
-├── app.py               # Streamlit UI
-├── evaluate_pdf_module.py  # 100-question benchmark harness
-├── evaluate_papers.py      # Multi-paper routing benchmark
-├── coverage_check.py       # Zero-API retrieval coverage comparison
-├── fix_failed.py           # Targeted re-answer pass for failures
-├── rejudge.py              # Re-judge saved results with another judge model
-├── tests/               # 24 unit/integration tests
-└── EVALUATION_REPORT_MOD01.md
+├── rag_agent/                  # Core system package
+│   ├── pipeline.py             # Orchestration: guardrail → route → retrieve → generate → evaluate
+│   ├── router.py               # Groq structured-output database router
+│   ├── retriever.py            # Hybrid dense+BM25 retrieval with RRF fusion
+│   ├── reranker.py             # Cross-encoder reranking of fused candidates
+│   ├── databases.py            # Qdrant collections + ingestion (with consolidation)
+│   ├── embeddings.py           # FastEmbed dense + sparse embeddings
+│   ├── parser.py               # PDF parsing + chunk consolidation
+│   ├── postprocess.py          # Citation stripping + numeric-grounding guard
+│   ├── guardrails.py           # Input/output safety policies
+│   ├── evaluator.py            # Faithfulness (groundedness) evaluation
+│   ├── memory.py               # Conversation memory
+│   ├── telemetry.py            # Per-step latency traces
+│   └── fallback.py             # DuckDuckGo web fallback
+├── evaluation/                 # Benchmark & evaluation harnesses
+│   ├── evaluate_pdf_module.py  # 100-question LLM-judged benchmark
+│   ├── evaluate_ragas.py       # RAGAS metrics (faithfulness, relevancy, correctness)
+│   ├── evaluate_papers.py      # Multi-paper routing benchmark
+│   ├── coverage_check.py       # Zero-API retrieval coverage comparison
+│   ├── fix_failed.py           # Targeted re-answer pass for failures
+│   └── rejudge.py              # Re-judge saved results with another judge model
+├── tests/                      # 27 unit/integration tests + CI smoke eval
+├── docs/                       # Evaluation reports & failure analysis
+├── assets/                     # Demo media
+├── app.py                      # Streamlit UI
+├── .github/workflows/ci.yml    # CI: tests → smoke eval → gated 100-question benchmark
+├── Dockerfile / docker-compose.yml
+└── pyproject.toml
 ```
 
 [Back to top](#top)

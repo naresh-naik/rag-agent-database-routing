@@ -29,7 +29,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+ROOT = Path(__file__).resolve().parents[1]  # repo root (this file lives in evaluation/)
+sys.path.insert(0, str(ROOT))  # keep `rag_agent` importable when run directly
+load_dotenv(ROOT / ".env")
 
 import os
 
@@ -46,7 +48,7 @@ from rag_agent.router import route_query
 # -- Config --------------------------------------------------------------------
 
 PDF_NAME = "9781513563602-mod01.pdf"
-ARTIFACTS = Path(__file__).parent / "eval_artifacts"
+ARTIFACTS = ROOT / "eval_artifacts"
 QUESTIONS_FILE = ARTIFACTS / "mod01_questions.json"
 
 
@@ -59,7 +61,7 @@ def resolve_pdf_path(cli_arg: str | None = None) -> Path:
     if env:
         candidates.append(Path(env).expanduser())
     candidates += [
-        Path(__file__).parent / "data" / PDF_NAME,
+        ROOT / "data" / PDF_NAME,
         Path.home() / "Downloads" / PDF_NAME,
     ]
     for c in candidates:
@@ -431,7 +433,7 @@ def write_report(
         w(f"| {r.qid} | {q_short} | {r.judge_verdict} | {r.judge_score:.1f} | {r.docs_found} | {r.top_score:.3f} | {r.groundedness:.2f} |")
     w("")
 
-    out = Path(__file__).parent / "EVALUATION_REPORT_MOD01.md"
+    out = ROOT / "docs" / "EVALUATION_REPORT_MOD01.md"
     out.write_text("\n".join(lines))
     log(f"Report written: {out}")
     print("\n" + "=" * 60)

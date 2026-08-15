@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -20,7 +23,7 @@ from evaluate_pdf_module import resolve_pdf_path
 from rag_agent.embeddings import FastEmbeddings
 from rag_agent.parser import DocumentParser, consolidate_chunks
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parents[1]
 QUESTIONS_FILE = ROOT / "eval_artifacts" / "mod01_questions.json"
 
 

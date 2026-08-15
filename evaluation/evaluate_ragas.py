@@ -17,14 +17,17 @@ import argparse
 import json
 import os
 import statistics
+import sys
 import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+ROOT = Path(__file__).resolve().parents[1]  # repo root (this file lives in evaluation/)
+sys.path.insert(0, str(ROOT))  # keep `rag_agent` importable when run directly
+load_dotenv(ROOT / ".env")
 
-ARTIFACTS = Path(__file__).parent / "eval_artifacts"
+ARTIFACTS = ROOT / "eval_artifacts"
 DEFECTIVE_QIDS = {32, 33}
 TOP_K = 8
 

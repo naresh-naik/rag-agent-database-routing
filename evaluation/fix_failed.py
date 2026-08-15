@@ -14,12 +14,15 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+ROOT = Path(__file__).resolve().parents[1]  # repo root (this file lives in evaluation/)
+sys.path.insert(0, str(ROOT))  # keep `rag_agent` importable when run directly
+load_dotenv(ROOT / ".env")
 
 import os
 
