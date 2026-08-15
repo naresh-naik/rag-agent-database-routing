@@ -953,6 +953,8 @@ if "current_project" not in st.session_state:
     st.session_state.current_project = None
 if "index_dirty" not in st.session_state:
     st.session_state.index_dirty = False
+if "doc_previews" not in st.session_state:
+    st.session_state.doc_previews: dict[str, dict] = {}
 
 # -- Project Bootstrap: restore last-opened project (or create the first) ------
 
@@ -1102,25 +1104,83 @@ with st.sidebar:
                     placeholder="Paste document text here...",
                     label_visibility="collapsed",
                 )
-                if st.button(f"Ingest into {label}", key=f"add_{db_key}", use_container_width=True):
+
+                # -- Preview: parse without indexing so the user can inspect
+                #    what will be ingested. The parse is cached per input and
+                #    reused by Ingest (no double parse of LiteParse/vision).
+                sig = (uploaded.name if uploaded else None, pasted)
+                prev = st.session_state.doc_previews.get(db_key)
+
+                def _parse_inputs(groq_client) -> tuple[list[str], str]:
+                    parsed: list[str] = []
+                    engine = "Text Chunker"
+                    if uploaded is not None:
+                        parsed_chunks, engine = DocumentParser.parse_file(
+                            uploaded, uploaded.name, groq_client=groq_client
+                        )
+                        parsed.extend(parsed_chunks)
+                    if pasted.strip():
+                        pasted_chunks, _ = DocumentParser.parse_file(
+                            pasted.encode("utf-8"), f"{db_key}_pasted.txt", groq_client=groq_client
+                        )
+                        parsed.extend(pasted_chunks)
+                    return parsed, engine
+
+                pc1, pc2 = st.columns(2)
+                if pc1.button("👁 Preview", key=f"preview_{db_key}", use_container_width=True,
+                              disabled=(uploaded is None and not pasted.strip())):
+                    if st.session_state.pipeline is None:
+                        with st.spinner("Initializing Vector Engine..."):
+                            _get_pipeline(groq_api_key)
+                    groq_client = st.session_state.pipeline[2]
+                    with st.spinner("Parsing document (no indexing yet)..."):
+                        parsed_chunks, engine_used = _parse_inputs(groq_client)
+                    if parsed_chunks:
+                        st.session_state.doc_previews[db_key] = {
+                            "name": uploaded.name if uploaded else f"{db_key}_pasted.txt",
+                            "engine": engine_used,
+                            "chunks": parsed_chunks,
+                            "sig": sig,
+                        }
+                    else:
+                        st.session_state.doc_previews.pop(db_key, None)
+                        st.warning("No document content found.")
+                    st.rerun()
+
+                if prev and prev.get("sig") != sig:
+                    st.caption("⚠️ Input changed since the last preview — it will be re-parsed on ingest.")
+                if prev:
+                    n_chunks = len(prev["chunks"])
+                    with st.expander(f"👁 Parsed Preview — {prev['name']} · {n_chunks} chunk{'s' if n_chunks != 1 else ''}", expanded=True):
+                        st.caption(f"Engine: **{prev['engine']}** · shown: {min(n_chunks, 15)} of {n_chunks}")
+                        for i, chunk in enumerate(prev["chunks"][:15]):
+                            shown = chunk if len(chunk) <= 1200 else chunk[:1200] + "\n… (truncated)"
+                            st.markdown(f"**Chunk {i+1}**")
+                            st.markdown(shown)
+                            if i < min(n_chunks, 15) - 1:
+                                st.divider()
+                        if n_chunks > 15:
+                            st.caption(f"… and {n_chunks - 15} more chunk(s).")
+
+                if pc2.button(f"Ingest into {label}", key=f"add_{db_key}", use_container_width=True):
                     if st.session_state.pipeline is None:
                         with st.spinner("Initializing Vector Engine..."):
                             _get_pipeline(groq_api_key)
 
                     client, embeddings, groq_client = st.session_state.pipeline
 
-                    chunks: list[str] = []
-                    engine_used = "Text Chunker"
-                    if uploaded is not None:
-                        parsed_chunks, engine_used = DocumentParser.parse_file(
-                            uploaded, uploaded.name, groq_client=groq_client
-                        )
-                        chunks.extend(parsed_chunks)
-                    if pasted.strip():
-                        pasted_chunks, _ = DocumentParser.parse_file(
-                            pasted.encode("utf-8"), f"{db_key}_pasted.txt", groq_client=groq_client
-                        )
-                        chunks.extend(pasted_chunks)
+                    # Reuse the cached preview parse when the input is unchanged
+                    if prev is not None and prev.get("sig") == sig:
+                        chunks, engine_used = list(prev["chunks"]), prev["engine"]
+                    else:
+                        chunks, engine_used = _parse_inputs(groq_client)
+                        if chunks:
+                            st.session_state.doc_previews[db_key] = {
+                                "name": uploaded.name if uploaded else f"{db_key}_pasted.txt",
+                                "engine": engine_used,
+                                "chunks": list(chunks),
+                                "sig": sig,
+                            }
 
                     if chunks:
                         with st.spinner(f"Embedding {len(chunks)} chunk(s) via {engine_used}..."):
