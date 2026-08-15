@@ -6,6 +6,7 @@ Orchestrates: Input Guardrail -> Memory Context -> Route -> Retrieve -> Generate
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from openai import OpenAI
@@ -21,7 +22,7 @@ from .retriever import RetrievedDoc, retrieve
 from .router import RoutingDecision, route_query
 from .telemetry import ExecutionTrace, Timer
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.getenv("RAG_MODEL", "llama-3.3-70b-versatile")
 
 RAG_SYSTEM = (
     "You are a helpful assistant. Answer the question using ONLY the provided context. "

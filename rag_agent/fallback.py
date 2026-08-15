@@ -7,10 +7,12 @@ Searches the web with DuckDuckGo and answers via Groq llama-3.3-70b-versatile.
 
 from __future__ import annotations
 
+import os
+
 from ddgs import DDGS
 from openai import OpenAI
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.getenv("RAG_MODEL", "llama-3.3-70b-versatile")
 
 
 def run_fallback(client: OpenAI, query: str) -> str:

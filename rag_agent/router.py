@@ -8,13 +8,14 @@ three databases and return a structured RoutingDecision.
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Literal
 
 from openai import OpenAI
 from pydantic import BaseModel
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.getenv("RAG_MODEL", "llama-3.3-70b-versatile")
 
 _DB_OPTIONS = ("products", "support", "financial")
 
