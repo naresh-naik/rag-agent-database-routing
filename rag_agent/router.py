@@ -15,6 +15,8 @@ from typing import Literal
 from openai import OpenAI
 from pydantic import BaseModel
 
+from .quota import chat_with_quota_retry
+
 MODEL = os.getenv("RAG_MODEL", "llama-3.3-70b-versatile")
 
 _DB_OPTIONS = ("products", "support", "financial")
@@ -85,7 +87,8 @@ def route_query(client: OpenAI, query: str) -> RoutingDecision:
 
     try:
 
-        response = client.chat.completions.create(
+        response = chat_with_quota_retry(
+            client,
             model=MODEL,
             messages=[
                 {"role": "system", "content": ROUTING_INSTRUCTIONS},

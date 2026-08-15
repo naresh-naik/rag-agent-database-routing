@@ -1454,7 +1454,14 @@ if prompt:
                 st.session_state.total_queries += 1
 
             except Exception as e:
-                error_msg = f"**Error:** {e}"
+                if "try again in" in str(e).lower() or "rate limit" in str(e).lower():
+                    error_msg = (
+                        "**⏳ Groq free-tier quota temporarily exhausted.** The request waited for the "
+                        "token window to free up but timed out. Please retry in a few minutes, or start "
+                        "the server with `RAG_MODEL=llama-3.1-8b-instant` for the higher-quota small model."
+                    )
+                else:
+                    error_msg = f"**Error:** {e}"
                 st.markdown(error_msg)
                 st.session_state.messages.append({"role": "assistant", "content": error_msg})
 

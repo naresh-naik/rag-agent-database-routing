@@ -18,6 +18,7 @@ from .fallback import run_fallback
 from .guardrails import GuardrailResult, InputGuardrail, OutputGuardrail
 from .memory import ConversationMemory
 from .postprocess import numbers_grounded, strip_citations
+from .quota import chat_with_quota_retry
 from .retriever import RetrievedDoc, retrieve
 from .router import RoutingDecision, route_query
 from .telemetry import ExecutionTrace, Timer
@@ -136,7 +137,8 @@ def run_pipeline(
         )
 
         with Timer() as t_gen:
-            response = groq_client.chat.completions.create(
+            response = chat_with_quota_retry(
+                groq_client,
                 model=MODEL,
                 messages=[
                     {"role": "system", "content": RAG_SYSTEM},
@@ -149,7 +151,8 @@ def run_pipeline(
             # number that appears nowhere in the retrieved context, regenerate once.
             doc_texts_gen = [d.text for d in docs]
             if not numbers_grounded(answer, doc_texts_gen):
-                response = groq_client.chat.completions.create(
+                response = chat_with_quota_retry(
+                    groq_client,
                     model=MODEL,
                     messages=[
                         {"role": "system", "content": RAG_SYSTEM},
