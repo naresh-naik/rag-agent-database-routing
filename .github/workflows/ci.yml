@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -44,10 +45,12 @@ jobs:
       - name: Retrieval & postprocessing smoke checks
         run: uv run python tests/smoke_eval.py
 
-  # Full 100-question LLM-judged benchmark. Only runs when a GROQ_API_KEY
-  # secret is available (e.g. nightly or manual), to respect free-tier quotas.
+  # Full 100-question LLM-judged benchmark. Gated by the repository variable
+  # RUN_BENCHMARK=true (secrets cannot be read in job-level `if` expressions);
+  # also runnable manually via workflow_dispatch. Requires the GROQ_API_KEY
+  # secret and the benchmark PDF under data/.
   eval-benchmark:
-    if: ${{ vars.RUN_BENCHMARK == 'true' || secrets.GROQ_API_KEY != '' }}
+    if: ${{ vars.RUN_BENCHMARK == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
